@@ -1,21 +1,59 @@
-import pkg from "undici";
+import { request } from "undici";
 import ShortUniqueId from 'short-unique-id';
 import assert from 'assert';
 import buzzphrase from 'buzzphrase';
+import { setTimeout as wait } from "timers/promises";
+import pLimit from 'p-limit';
 
-const { request } = pkg;
+const limit = pLimit(20);
+
 const uid = new ShortUniqueId({ length: 10 });
 const host = 'http://localhost:3000/';
 let errorCount = 0;
+
+const attemptsMax = Number(process.argv[2]);
+const delay = Number(process.argv[3]);
+const departmentId = process.argv[4];
 
 function showHelp() {
 	console.log(`
 QueueFlooder - Flood omnichannel queue with N requests of rooms
 Usage: node index.js [ATTEMPTS] [DELAY]
 
-	[ATTEMPTS] - The number of requests for rooms to make
-	[DELAY] - The amount of time to wait between requests (in milliseconds)
+	[PERSONAS] - The number of personas to create
+	[DELAY] - The amount of time to wait between requests (in seconds)
+	[DEPARTMENT] - The department to use for the personas
 	`);
+}
+
+const personaTotalTime = [];
+const visitorCreationTime = [];
+const roomCreationTime = [];
+const messageCreationTime = [];
+const fetchMessagesTime = [];
+const send2ndMessageTime = [];
+const fetch2ndMessagesTime = [];
+
+function printStats() {
+	const totalOpTime = personaTotalTime.reduce((a, b) => a + b / 1000, 0) - 5 * personaTotalTime.length;
+	const avgPersonaTime = totalOpTime / personaTotalTime.length;
+	const avgVisitorCreationTime = visitorCreationTime.reduce((a, b) => a + b / 1000, 0) / visitorCreationTime.length;
+	const avgRoomCreationTime = roomCreationTime.reduce((a, b) => a + b / 1000, 0) / roomCreationTime.length;
+	const avgMessageCreationTime = messageCreationTime.reduce((a, b) => a + b / 1000, 0) / messageCreationTime.length;
+	const avgFetchMessagesTime = fetchMessagesTime.reduce((a, b) => a + b / 1000, 0) / fetchMessagesTime.length;
+	const avgSend2ndMessageTime = send2ndMessageTime.reduce((a, b) => a + b / 1000, 0) / send2ndMessageTime.length;
+	const avgFetch2ndMessagesTime = fetch2ndMessagesTime.reduce((a, b) => a + b / 1000, 0) / fetch2ndMessagesTime.length;
+	
+	console.table({
+		'Total Persona Time': totalOpTime,
+		'Average Persona Time': avgPersonaTime,
+		'Average Visitor Creation Time': avgVisitorCreationTime,
+		'Average Room Creation Time': avgRoomCreationTime,
+		'Average Message Creation Time': avgMessageCreationTime,
+		'Average Fetch Messages Time': avgFetchMessagesTime,
+		'Average Send 2nd Message Time': avgSend2ndMessageTime,
+		'Average Fetch 2nd Messages Time': avgFetch2ndMessagesTime,
+	});
 }
 
 // create visitor
@@ -25,7 +63,7 @@ async function createVisitor() {
 		token: visitorToken,
 		email: `${visitorToken}@gmail.com`,
 		name: `Test Queue ${ visitorToken }`,
-		department: 'E8MZxRZuhdmgCAE2z',
+		department: departmentId,
 	}
 
 	return request(`${ host }api/v1/livechat/visitor`, { method: 'POST', headers: { 
@@ -48,13 +86,57 @@ async function sendMessageToRoom(visitor, room) {
 	return request(`${ host }api/v1/livechat/message`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(messageObj) });
 }
 
-async function run() {
-	try {
-		const { visitor } = await (await createVisitor()).body.json() || {};
-		const { room } = await (await createRoomForVisitor(visitor)).body.json();
-		const message = await (await sendMessageToRoom(visitor, room)).body.json();
+// fetch messages from room
+async function fetchMessages(visitor, room) {
+	const { messages } = await (await request(`${ host }api/v1/livechat/messages.history/${ room._id }?token=${ visitor.token }`)).body.json();
+	assert(messages, 'Messages are present');
+	assert(messages.length > 0, 'Messages sent are here');
+}
 
-		assert(message, 'Message is present');
+async function measureActionTo(action, arr) {
+	const start = new Date();
+	const returnValue = await action();
+	arr.push(new Date() - start);
+
+	return returnValue;
+}
+
+// represents a persona and the actions it can perform with a hardcoded delay. Each persona will:
+// 1. create itself
+// 2. create a room
+// 3. send a message to the room
+// 4. fetch messages from the room
+// 5. send a message to the room
+// 6. fetch messages from the room again
+// 7. end
+async function persona(start) {
+	const { visitor } = await (await measureActionTo(createVisitor, visitorCreationTime)).body.json() || {};
+
+	await wait(1000)
+	const { room } = await (await measureActionTo(() => createRoomForVisitor(visitor), roomCreationTime)).body.json() || {};
+
+	await wait(1000)
+	const { message } = await (await measureActionTo(() => sendMessageToRoom(visitor, room), messageCreationTime)).body.json() || {};
+	assert(message, 'Message is present');
+
+	await wait(1000)
+	await measureActionTo(() => fetchMessages(visitor, room), fetchMessagesTime);
+
+	await wait(1000)
+	await measureActionTo(() => sendMessageToRoom(visitor, room), send2ndMessageTime);
+
+	await wait(1000)
+	await measureActionTo(() => fetchMessages(visitor, room), fetch2ndMessagesTime);
+}
+
+async function run(delay) {
+	try {
+		await wait(delay);
+
+		const start = new Date();
+		await persona(start);
+		personaTotalTime.push(new Date() - start);
+
 		errorCount = 0;
 	} catch(e) {
 		errorCount++;
@@ -68,28 +150,27 @@ async function run() {
 	}
 }
 
-const attemptsMax = Number(process.argv[2]);
-const delay = Number(process.argv[3]);
 if (!attemptsMax || !delay) {
 	showHelp();
 	process.exit(1);
 }
 
-if (delay < 100) {
+if (delay < 0.5) {
 	console.log('Cmon, be nice to server')
 	process.exit(1);
 }
 
-let attempts = 1;
-async function timeOut(time) {
-	run()
-	setTimeout(() => {
-		attempts++;
-		if (attempts < attemptsMax) {
-			timeOut(time)
-		}
-	}, time);
+const op = [];
+function init() { 
+	console.log('Starting...');
+	for (let i = 0; i < attemptsMax; i++) {
+		op.push(limit(() => run(delay * 1000)));
+	}
+
+	Promise.all(op).then(() => {
+		printStats();
+	});
 }
 
-timeOut(delay);
-console.log(`Finished requesting ${ attemptsMax } rooms`);
+init();
+console.log(`Started requesting ${ attemptsMax } rooms with a delay of ${ delay } seconds`);

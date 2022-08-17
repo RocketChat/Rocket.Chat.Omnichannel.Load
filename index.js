@@ -8,12 +8,12 @@ import pLimit from 'p-limit';
 const limit = pLimit(20);
 
 const uid = new ShortUniqueId({ length: 10 });
-const host = 'http://localhost:3000/';
+const host = process.env.HOST || 'http://localhost:3000/';
 let errorCount = 0;
 
-const attemptsMax = Number(process.argv[2]);
-const delay = Number(process.argv[3]);
-const departmentId = process.argv[4];
+const attemptsMax = process.env.ATTEMPTS || Number(process.argv[2]);
+const delay = process.env.DELAY || Number(process.argv[3]);
+const departmentId = process.env.DEPARTMENT || process.argv[4];
 
 function showHelp() {
 	console.log(`

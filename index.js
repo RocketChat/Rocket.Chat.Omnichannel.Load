@@ -45,14 +45,14 @@ function printStats() {
 	const avgFetch2ndMessagesTime = fetch2ndMessagesTime.reduce((a, b) => a + b / 1000, 0) / fetch2ndMessagesTime.length;
 	
 	console.table({
-		'Total Persona Time': totalOpTime,
-		'Average Persona Time': avgPersonaTime,
-		'Average Visitor Creation Time': avgVisitorCreationTime,
-		'Average Room Creation Time': avgRoomCreationTime,
-		'Average Message Creation Time': avgMessageCreationTime,
-		'Average Fetch Messages Time': avgFetchMessagesTime,
-		'Average Send 2nd Message Time': avgSend2ndMessageTime,
-		'Average Fetch 2nd Messages Time': avgFetch2ndMessagesTime,
+		'Total Persona Time': totalOpTime.toFixed(2),
+		'Average Persona Time': avgPersonaTime.toFixed(2),
+		'Average Visitor Creation Time': avgVisitorCreationTime.toFixed(2),
+		'Average Room Creation Time': avgRoomCreationTime.toFixed(2),
+		'Average Message Creation Time': avgMessageCreationTime.toFixed(2),
+		'Average Fetch Messages Time': avgFetchMessagesTime.toFixed(2),
+		'Average Send 2nd Message Time': avgSend2ndMessageTime.toFixed(2),
+		'Average Fetch 2nd Messages Time': avgFetch2ndMessagesTime.toFixed(2),
 	});
 }
 
@@ -127,6 +127,8 @@ async function persona(start) {
 
 	await wait(1000)
 	await measureActionTo(() => fetchMessages(visitor, room), fetch2ndMessagesTime);
+
+	console.log(`Persona ${ visitor.token } done in ${ new Date() - start }ms`);
 }
 
 async function run(delay) {

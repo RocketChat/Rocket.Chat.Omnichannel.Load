@@ -15,5 +15,9 @@
     "p-limit": "^4.0.0",
     "short-unique-id": "^4.4.4",
     "undici": "^4.7.0"
+  },
+  "volta": {
+    "node": "16.13.0",
+    "yarn": "3.2.2"
   }
 }

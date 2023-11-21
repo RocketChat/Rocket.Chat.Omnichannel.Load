@@ -2,14 +2,16 @@ import { request } from "undici";
 import assert from 'assert';
 import buzzphrase from 'buzzphrase';
 import ShortUniqueId from 'short-unique-id';
+import { setTimeout as wait } from "timers/promises";
+
 
 import { parseHost } from "./utils.js";
+import { answerRoom } from "./agents.js";
 
 const uid = new ShortUniqueId({ length: 10 });
 let host = parseHost(process.env.HOST);
 const departmentId = process.env.DEPARTMENT || process.argv[4];
 
-const personaTotalTime = [];
 const visitorCreationTime = [];
 const roomCreationTime = [];
 const messageCreationTime = [];
@@ -21,9 +23,9 @@ function parseNaNValue(value) {
 	return (Number.isNaN(value) ? 0 : value).toFixed(2);
 }
 
-export function printStats() {
-	const totalOpTime = personaTotalTime.reduce((a, b) => a + b / 1000, 0) - 5 * personaTotalTime.length;
-	const avgPersonaTime = totalOpTime / personaTotalTime.length;
+export function printStats(total) {
+	const totalOpTime = total.reduce((a, b) => a + b / 1000, 0) - 5 * total.length;
+	const avgPersonaTime = totalOpTime / total.length;
 	const avgVisitorCreationTime = visitorCreationTime.reduce((a, b) => a + b / 1000, 0) / visitorCreationTime.length;
 	const avgRoomCreationTime = roomCreationTime.reduce((a, b) => a + b / 1000, 0) / roomCreationTime.length;
 	const avgMessageCreationTime = messageCreationTime.reduce((a, b) => a + b / 1000, 0) / messageCreationTime.length;
@@ -109,7 +111,7 @@ async function consumeBody(request) {
 // 5. send a message to the room
 // 6. fetch messages from the room again
 // 7. end
-export async function persona(start) {
+export async function persona(start, agent) {
 	const { visitor } = await consumeBody(await measureActionTo(createVisitor, visitorCreationTime));
 	assert(visitor, 'Visitor was not created');
 
@@ -129,6 +131,15 @@ export async function persona(start) {
 
 	await wait(1000)
 	await measureActionTo(() => fetchMessages(visitor, room), fetch2ndMessagesTime);
+
+	if (agent) {
+		console.log(`\tPersona ${ visitor.token } is being answered by agent ${ agent.username }`);
+		try {
+			await answerRoom(room, agent);
+		} catch (e) {
+			console.error(`\tPersona ${ visitor.token } could not be answered by agent ${ agent.username }`, e);
+		}
+	}
 
 	console.log(`Persona ${ visitor.token } done in ${ new Date() - start }ms`);
 }

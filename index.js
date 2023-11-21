@@ -2,6 +2,7 @@ import { setTimeout as wait } from "timers/promises";
 import pLimit from 'p-limit';
 
 import { persona, printStats } from './visitors.js';
+import { checkAgents } from "./agents.js";
 
 const limit = pLimit(20);
 
@@ -10,6 +11,9 @@ let errorCount = 0;
 
 const attemptsMax = process.env.ATTEMPTS || Number(process.argv[2]);
 const delay = process.env.DELAY || Number(process.argv[3]);
+const agents = process.env.ENABLE_AGENTS || Number(process.argv[4]);
+const username = process.env.ADMIN_ID;
+const password = process.env.ADMIN_TOKEN;
 
 function showHelp() {
 	console.log(`
@@ -22,12 +26,16 @@ Usage: node index.js [ATTEMPTS] [DELAY]
 	`);
 }
 
+const personaTotalTime = [];
+
 async function run(delay) {
+	let agent;
 	try {
+		agent = agents ? await checkAgents(username, password) : null;
 		await wait(delay);
 
 		const start = new Date();
-		await persona(start);
+		await persona(start, agent);
 		personaTotalTime.push(new Date() - start);
 
 		errorCount = 0;
@@ -60,7 +68,7 @@ function init() {
 	}
 
 	Promise.all(op).then(() => {
-		printStats();
+		printStats(personaTotalTime);
 	});
 }
 
